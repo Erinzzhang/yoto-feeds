@@ -33,11 +33,14 @@
   .step .idx{font-family:Georgia,serif;font-style:italic;color:var(--clay);font-size:20px;min-width:22px}
   .step h2{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--moss-deep);font-weight:600}
   label.field{display:block;font-size:12px;color:var(--dim);margin-bottom:6px}
-  input[type=url],textarea{
+  input[type=url],input[type=text],input[type=password],textarea{
     width:100%;font-family:inherit;font-size:14px;color:var(--ink);
     background:#fff;border:1.5px solid var(--line);border-radius:2px;padding:12px 14px;
   }
-  input[type=url]:focus,textarea:focus{outline:none;border-color:var(--moss)}
+  input[type=url]:focus,input[type=text]:focus,input[type=password]:focus,textarea:focus{outline:none;border-color:var(--moss)}
+  #pubBtn{background:var(--moss-deep);border-color:var(--moss-deep)}
+  #pubBtn:hover{background:var(--ink);border-color:var(--ink)}
+  details#ghSettings summary{cursor:pointer;font-size:12px;color:var(--moss-deep);padding:4px 0}
   textarea{min-height:120px;resize:vertical;line-height:1.4}
   .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
   button{
@@ -130,11 +133,23 @@
   <label class="field" for="cardTitle">這張卡的名稱（會寫進 feed 標題）</label>
   <input type="url" id="cardTitle" placeholder="例如：小福 4 歲睡前故事" style="font-family:Georgia,'Songti TC',serif">
   <div class="row">
-    <button id="genBtn">下載自訂 feed（.xml）</button>
-    <button class="ghost" id="copyBtn">複製結果 XML</button>
+    <button id="pubBtn">發佈到 Yoto（一鍵更新 repo）</button>
   </div>
-  <div class="note">手機上按「複製結果 XML」，把它貼回對話給我發佈；電腦上也可用「下載」。發佈後到 yotoplay.com/create → Podcasts → Add Podcast 貼公開網址。</div>
+  <div class="note">按「發佈」直接把選中單集寫進 GitHub 的 <code>feed.xml</code>，約 1 分鐘後 Yoto 卡自動更新（首次製卡才需手動貼網址）。第一次用請先在下方「GitHub 設定」貼上 token。</div>
+  <details id="ghSettings">
+    <summary>GitHub 設定（貼一次 token，存在本機瀏覽器）</summary>
+    <label class="field" for="ghToken" style="margin-top:10px">細粒度 token（只授權 yoto-feeds 的 Contents 讀寫）</label>
+    <input type="password" id="ghToken" placeholder="github_pat_..." autocomplete="off">
+    <label class="field" for="destName" style="margin-top:10px">目標檔名</label>
+    <input type="text" id="destName" value="feed.xml">
+    <div class="altline"><a id="clearTok">清除已存的 token</a></div>
+  </details>
   <div class="msg ok" id="ok"></div>
+  <div class="row" style="margin-top:14px">
+    <button class="ghost" id="copyBtn">複製結果 XML</button>
+    <button class="ghost" id="genBtn">下載 .xml</button>
+  </div>
+  <div class="note">「複製 / 下載」是離線退路：不想用 token 時，複製後貼回對話給我發佈亦可。</div>
 </section>
 
 <footer>
@@ -252,6 +267,7 @@
     $("totN").textContent = items.length;
     $("genBtn").disabled = selected.size===0;
     $("copyBtn").disabled = selected.size===0;
+    $("pubBtn").disabled = selected.size===0;
   }
 
   async function loadFromUrl(){
@@ -317,6 +333,48 @@
     );
   }
 
+  // ---- One-tap publish straight to the repo via GitHub API ----
+  const GH_REPO = "Erinzzhang/yoto-feeds";
+  const LS_TOKEN = "yoto_gh_token";
+
+  // UTF-8 safe base64 (btoa is latin1-only; chunked to avoid stack overflow on big feeds)
+  function b64(str){
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for(let i=0;i<bytes.length;i+=0x8000){ bin += String.fromCharCode.apply(null, bytes.subarray(i,i+0x8000)); }
+    return btoa(bin);
+  }
+
+  async function publishToGitHub(){
+    if(selected.size===0){ showErr("還沒勾選任何單集。"); return; }
+    const token = $("ghToken").value.trim();
+    if(!token){ showErr("先在「GitHub 設定」貼上 token。"); $("ghSettings").open = true; return; }
+    localStorage.setItem(LS_TOKEN, token);          // remember for next time
+    const dest = $("destName").value.trim() || "feed.xml";
+    const xml = buildFeed();
+    const btn = $("pubBtn"); btn.disabled = true; const label = btn.textContent; btn.textContent = "發佈中…";
+    clearErr();
+    try{
+      const api = "https://api.github.com/repos/" + GH_REPO + "/contents/" + encodeURIComponent(dest);
+      const headers = { "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json" };
+      let sha;
+      const cur = await fetch(api, {headers});
+      if(cur.ok){ sha = (await cur.json()).sha; }
+      else if(cur.status === 401 || cur.status === 403){ throw new Error("token 無效或權限不足（"+cur.status+"）。確認 token 有 yoto-feeds 的 Contents 讀寫。"); }
+      else if(cur.status !== 404){ throw new Error("讀取現況失敗 HTTP "+cur.status); }
+      const body = { message:"Update "+dest+" via curator", content:b64(xml) };
+      if(sha) body.sha = sha;
+      const put = await fetch(api, {method:"PUT", headers, body:JSON.stringify(body)});
+      if(!put.ok){ throw new Error("HTTP "+put.status+" "+(await put.text()).slice(0,140)); }
+      const url = "https://erinzzhang.github.io/" + GH_REPO.split("/")[1] + "/" + dest;
+      showOk("已發佈！約 1 分鐘後生效。網址（首次製卡貼這個，之後更新免碰）：" + url);
+    }catch(e){
+      showErr("發佈失敗：" + e.message);
+    }finally{
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
   function reset(){
     sourceDoc=null; items=[]; selected.clear();
     $("url").value=""; $("xml").value=""; $("cardTitle").value="";
@@ -333,6 +391,9 @@
   $("selNone").addEventListener("click", ()=>{ selected.clear(); renderList(); });
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
+  $("pubBtn").addEventListener("click", publishToGitHub);
+  $("clearTok").addEventListener("click", ()=>{ localStorage.removeItem(LS_TOKEN); $("ghToken").value=""; showOk("已清除本機儲存的 token。"); });
+  $("ghToken").value = localStorage.getItem(LS_TOKEN) || "";   // restore remembered token
   $("url").addEventListener("keydown", e=>{ if(e.key==="Enter") loadFromUrl(); });
 
   // Same-origin preload: ?src=feed.xml lets Claude fetch a CORS-blocked host, drop the
