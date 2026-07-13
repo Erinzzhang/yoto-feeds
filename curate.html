@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>故事策展 · Yoto Feed 產生器</title>
+<style>
+  :root{
+    --ink:#1c2321;
+    --paper:#f6f4ee;
+    --line:#d8d2c4;
+    --moss:#4a6b52;
+    --moss-deep:#2f4a37;
+    --clay:#b0704a;
+    --dim:#7a756a;
+    --pick:#eef2e9;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    background:var(--paper);color:var(--ink);
+    line-height:1.5;padding:clamp(16px,4vw,48px);
+    max-width:860px;margin:0 auto;
+  }
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  .kick{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--moss);margin-bottom:10px}
+  h1{font-family:Georgia,"Songti TC","Noto Serif TC",serif;font-size:clamp(26px,6vw,40px);font-weight:600;line-height:1.05;letter-spacing:-.01em}
+  h1 .n{color:var(--clay);font-style:italic}
+  .sub{margin-top:12px;font-size:13px;color:var(--dim);max-width:52ch}
+  section{margin-bottom:26px}
+  .step{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .step .idx{font-family:Georgia,serif;font-style:italic;color:var(--clay);font-size:20px;min-width:22px}
+  .step h2{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--moss-deep);font-weight:600}
+  label.field{display:block;font-size:12px;color:var(--dim);margin-bottom:6px}
+  input[type=url],textarea{
+    width:100%;font-family:inherit;font-size:14px;color:var(--ink);
+    background:#fff;border:1.5px solid var(--line);border-radius:2px;padding:12px 14px;
+  }
+  input[type=url]:focus,textarea:focus{outline:none;border-color:var(--moss)}
+  textarea{min-height:120px;resize:vertical;line-height:1.4}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  button{
+    font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    border:1.5px solid var(--ink);border-radius:2px;padding:11px 20px;
+    background:var(--ink);color:var(--paper);letter-spacing:.04em;
+    transition:transform .08s ease,background .15s ease;
+  }
+  button:hover{background:var(--moss-deep);border-color:var(--moss-deep)}
+  button:active{transform:translateY(1px)}
+  button.ghost{background:transparent;color:var(--ink)}
+  button.ghost:hover{background:var(--ink);color:var(--paper)}
+  button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .altline{margin-top:14px;font-size:12px;color:var(--dim)}
+  .altline a{color:var(--moss);cursor:pointer;text-decoration:underline}
+  #pasteWrap{display:none;margin-top:14px}
+  #pasteWrap.show{display:block}
+  .note{font-size:11.5px;color:var(--dim);margin-top:8px;line-height:1.5}
+  .msg{font-size:13px;padding:12px 14px;border-radius:2px;margin-top:14px;display:none}
+  .msg.show{display:block}
+  .msg.err{background:#fbeee8;border-left:3px solid var(--clay);color:#7c3f22}
+  .msg.ok{background:var(--pick);border-left:3px solid var(--moss);color:var(--moss-deep)}
+  #feedMeta{display:none;margin-bottom:14px;padding:14px;background:#fff;border:1.5px solid var(--line);border-radius:2px}
+  #feedMeta.show{display:block}
+  #feedMeta .ft{font-family:Georgia,serif;font-size:18px;font-weight:600}
+  #feedMeta .fc{font-size:12px;color:var(--dim);margin-top:4px}
+  .barrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 10px;flex-wrap:wrap}
+  .count{font-size:12px;color:var(--dim)}
+  .count b{color:var(--moss-deep);font-size:14px}
+  .selactions{display:flex;gap:8px}
+  .selactions button{padding:7px 12px;font-size:11px}
+  ul#eps{list-style:none}
+  li.ep{
+    display:flex;gap:12px;align-items:flex-start;padding:12px 14px;
+    background:#fff;border:1.5px solid var(--line);border-radius:2px;margin-bottom:8px;
+    cursor:pointer;transition:border-color .12s ease,background .12s ease;
+  }
+  li.ep:hover{border-color:var(--moss)}
+  li.ep.sel{background:var(--pick);border-color:var(--moss)}
+  li.ep input{margin-top:3px;width:17px;height:17px;accent-color:var(--moss);cursor:pointer;flex:none}
+  .ep-body{flex:1;min-width:0}
+  .ep-title{font-size:14px;font-weight:600;line-height:1.35}
+  .ep-meta{font-size:11.5px;color:var(--dim);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap}
+  .ep-warn{color:var(--clay)}
+  #out{display:none}
+  #out.show{display:block}
+  footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);font-size:11px;color:var(--dim);line-height:1.6}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="kick">Podcast → Yoto</div>
+  <h1>故事<span class="n">策展</span>台</h1>
+  <p class="sub">貼一份 podcast 的 RSS，勾出要給孩子聽的幾集，產生一份只含選定單集的自訂 feed。音檔一律指回原伺服器，不下載、不轉檔。</p>
+</header>
+
+<section>
+  <div class="step"><span class="idx">1</span><h2>載入 RSS</h2></div>
+  <label class="field" for="url">RSS 網址</label>
+  <input type="url" id="url" placeholder="https://feed.firstory.me/rss/user/..." autocomplete="off">
+  <div class="row">
+    <button id="loadBtn">抓取單集</button>
+    <button class="ghost" id="resetBtn">清空重來</button>
+  </div>
+  <div class="altline">抓不到？可能是該站擋跨網域請求。<a id="togglePaste">改用貼上 XML 原始碼 →</a></div>
+  <div id="pasteWrap">
+    <label class="field" for="xml">在瀏覽器打開 RSS 網址，全選內容貼進來：</label>
+    <textarea id="xml" placeholder="<?xml version=&quot;1.0&quot;?> ..."></textarea>
+    <button id="parsePaste" style="margin-top:10px">解析貼上的內容</button>
+  </div>
+  <div class="msg err" id="err"></div>
+</section>
+
+<section id="listSection" style="display:none">
+  <div class="step"><span class="idx">2</span><h2>挑選單集</h2></div>
+  <div id="feedMeta"><div class="ft" id="fTitle"></div><div class="fc" id="fCount"></div></div>
+  <div class="barrow">
+    <span class="count">已選 <b id="selN">0</b> / <span id="totN">0</span> 集</span>
+    <div class="selactions">
+      <button class="ghost" id="selAll">全選</button>
+      <button class="ghost" id="selNone">全不選</button>
+    </div>
+  </div>
+  <ul id="eps"></ul>
+</section>
+
+<section id="out">
+  <div class="step"><span class="idx">3</span><h2>產生 Feed</h2></div>
+  <label class="field" for="cardTitle">這張卡的名稱（會寫進 feed 標題）</label>
+  <input type="url" id="cardTitle" placeholder="例如：小福 4 歲睡前故事" style="font-family:Georgia,'Songti TC',serif">
+  <div class="row">
+    <button id="genBtn">下載自訂 feed（.xml）</button>
+    <button class="ghost" id="copyBtn">複製結果 XML</button>
+  </div>
+  <div class="note">手機上按「複製結果 XML」，把它貼回對話給我發佈；電腦上也可用「下載」。發佈後到 yotoplay.com/create → Podcasts → Add Podcast 貼公開網址。</div>
+  <div class="msg ok" id="ok"></div>
+</section>
+
+<footer>
+  私人自用工具 · 僅篩選與重新打包，enclosure 逐字保留、指回原始音檔伺服器 · 不下載、不轉檔、不代管任何音檔。
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+  let sourceDoc = null;   // parsed XML Document
+  let items = [];         // array of <item> elements
+  let selected = new Set();
+
+  const PROXIES = [
+    u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  ];
+
+  function showErr(m){ const e=$("err"); e.textContent=m; e.className="msg err show"; }
+  function clearErr(){ $("err").className="msg err"; }
+  function showOk(m){ const e=$("ok"); e.textContent=m; e.className="msg ok show"; }
+
+  function fmtDur(sec){
+    if(!sec) return null;
+    let s = parseInt(sec,10);
+    if(isNaN(s)){ // maybe HH:MM:SS
+      const p = String(sec).split(":").map(Number);
+      if(p.some(isNaN)) return String(sec);
+      s = p.reduce((a,b)=>a*60+b,0);
+    }
+    const m = Math.floor(s/60), r = s%60;
+    return m + "分" + (r?(" "+r+"秒"):"");
+  }
+  function fmtDate(d){
+    if(!d) return null;
+    const dt = new Date(d);
+    if(isNaN(dt)) return null;
+    return dt.getFullYear()+"/"+String(dt.getMonth()+1).padStart(2,"0")+"/"+String(dt.getDate()).padStart(2,"0");
+  }
+
+  function parseXml(text){
+    clearErr();
+    const doc = new DOMParser().parseFromString(text, "application/xml");
+    if(doc.querySelector("parsererror")){
+      showErr("這段內容不是有效的 XML。確認你貼的是 RSS 原始碼，不是網頁畫面。");
+      return;
+    }
+    const chan = doc.querySelector("channel");
+    if(!chan){
+      showErr("找不到 <channel>，這可能不是 podcast RSS。");
+      return;
+    }
+    sourceDoc = doc;
+    items = Array.from(doc.querySelectorAll("channel > item"));
+    if(items.length===0){ showErr("這份 feed 裡沒有任何單集（<item>）。"); return; }
+
+    // Verify each has an enclosure; flag those without
+    const chanTitle = (chan.querySelector(":scope > title")||{}).textContent || "（未命名節目）";
+    $("fTitle").textContent = chanTitle.trim();
+    $("fCount").textContent = "共 " + items.length + " 集";
+    $("feedMeta").className = "show";
+
+    renderList();
+    $("listSection").style.display = "block";
+    $("out").className = "show";
+    if(!$("cardTitle").value) $("cardTitle").value = chanTitle.trim() + "（精選）";
+  }
+
+  function getEnclosureUrl(item){
+    const enc = item.querySelector("enclosure");
+    return enc ? enc.getAttribute("url") : null;
+  }
+
+  function renderList(){
+    const ul = $("eps"); ul.innerHTML="";
+    items.forEach((item, i)=>{
+      const title = (item.querySelector("title")||{}).textContent || "（無標題）";
+      const pub = item.querySelector("pubDate");
+      const durEl = item.getElementsByTagName("itunes:duration")[0]
+                 || item.querySelector("duration");
+      const dur = durEl ? durEl.textContent : null;
+      const encUrl = getEnclosureUrl(item);
+
+      const li = document.createElement("li");
+      li.className = "ep" + (selected.has(i)?" sel":"");
+      const cb = document.createElement("input");
+      cb.type="checkbox"; cb.checked = selected.has(i);
+      cb.addEventListener("change", e=>{ e.stopPropagation();
+        if(cb.checked) selected.add(i); else selected.delete(i);
+        li.classList.toggle("sel", cb.checked); updateCount();
+      });
+      li.addEventListener("click", e=>{
+        if(e.target===cb) return;
+        cb.checked=!cb.checked; cb.dispatchEvent(new Event("change"));
+      });
+
+      const body = document.createElement("div"); body.className="ep-body";
+      const t = document.createElement("div"); t.className="ep-title"; t.textContent=title.trim();
+      const meta = document.createElement("div"); meta.className="ep-meta";
+      const parts=[];
+      const fd = fmtDate(pub?pub.textContent:null); if(fd) parts.push(fd);
+      const dd = fmtDur(dur); if(dd) parts.push(dd);
+      parts.forEach(p=>{ const s=document.createElement("span"); s.textContent=p; meta.appendChild(s); });
+      if(!encUrl){ const w=document.createElement("span"); w.className="ep-warn"; w.textContent="⚠ 無音檔連結，Yoto 無法播放"; meta.appendChild(w); }
+      body.appendChild(t); body.appendChild(meta);
+      li.appendChild(cb); li.appendChild(body);
+      ul.appendChild(li);
+    });
+    updateCount();
+  }
+
+  function updateCount(){
+    $("selN").textContent = selected.size;
+    $("totN").textContent = items.length;
+    $("genBtn").disabled = selected.size===0;
+    $("copyBtn").disabled = selected.size===0;
+  }
+
+  async function loadFromUrl(){
+    const url = $("url").value.trim();
+    if(!url){ showErr("先貼一個 RSS 網址。"); return; }
+    clearErr(); $("loadBtn").disabled=true; $("loadBtn").textContent="抓取中…";
+    let text=null, lastErr="";
+    // try direct first, then proxies
+    const attempts = [url, ...PROXIES.map(p=>p(url))];
+    for(const a of attempts){
+      try{
+        const r = await fetch(a, {redirect:"follow"});
+        if(!r.ok){ lastErr="HTTP "+r.status; continue; }
+        text = await r.text();
+        if(text && text.indexOf("<")!==-1) break;
+      }catch(e){ lastErr = e.message; }
+    }
+    $("loadBtn").disabled=false; $("loadBtn").textContent="抓取單集";
+    if(!text){
+      showErr("直接抓取失敗（"+lastErr+"）。這個 host 可能擋跨網域。請點下方改用貼上 XML 原始碼。");
+      $("pasteWrap").classList.add("show");
+      return;
+    }
+    parseXml(text);
+  }
+
+  function buildFeed(){
+    // Clone source doc, keep channel-level metadata, keep only selected items verbatim
+    const clone = sourceDoc.cloneNode(true);
+    const chan = clone.querySelector("channel");
+    const allItems = Array.from(clone.querySelectorAll("channel > item"));
+    allItems.forEach((it,i)=>{ if(!selected.has(i)) chan.removeChild(it); });
+
+    // Override channel title with card name
+    const cardTitle = $("cardTitle").value.trim();
+    if(cardTitle){
+      let tEl = chan.querySelector(":scope > title");
+      if(!tEl){ tEl = clone.createElement("title"); chan.insertBefore(tEl, chan.firstChild); }
+      tEl.textContent = cardTitle;
+    }
+    return new XMLSerializer().serializeToString(clone);
+  }
+
+  function download(){
+    if(selected.size===0){ showErr("還沒勾選任何單集。"); return; }
+    const xml = buildFeed();
+    const blob = new Blob([xml], {type:"application/rss+xml;charset=utf-8"});
+    const a = document.createElement("a");
+    const name = ($("cardTitle").value.trim() || "custom-feed").replace(/[^\w\u4e00-\u9fa5-]+/g,"_");
+    a.href = URL.createObjectURL(blob);
+    a.download = name + ".xml";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+    showOk("已下載 "+selected.size+" 集。放上公開網址後貼進 Yoto 即可。");
+  }
+
+  function copyXml(){
+    if(selected.size===0){ showErr("還沒勾選任何單集。"); return; }
+    const xml = buildFeed();
+    navigator.clipboard.writeText(xml).then(
+      ()=>showOk("已複製 "+selected.size+" 集的 XML。貼回對話給我發佈即可。"),
+      ()=>showErr("複製失敗（可能是非 https 環境）。改用下載。")
+    );
+  }
+
+  function reset(){
+    sourceDoc=null; items=[]; selected.clear();
+    $("url").value=""; $("xml").value=""; $("cardTitle").value="";
+    $("eps").innerHTML=""; $("listSection").style.display="none";
+    $("out").className=""; $("feedMeta").className=""; clearErr();
+    $("ok").className="msg ok"; $("pasteWrap").classList.remove("show");
+  }
+
+  $("loadBtn").addEventListener("click", loadFromUrl);
+  $("parsePaste").addEventListener("click", ()=>{ const t=$("xml").value.trim(); if(!t){showErr("貼上內容是空的。");return;} parseXml(t); });
+  $("togglePaste").addEventListener("click", ()=>$("pasteWrap").classList.toggle("show"));
+  $("resetBtn").addEventListener("click", reset);
+  $("selAll").addEventListener("click", ()=>{ items.forEach((_,i)=>selected.add(i)); renderList(); });
+  $("selNone").addEventListener("click", ()=>{ selected.clear(); renderList(); });
+  $("genBtn").addEventListener("click", download);
+  $("copyBtn").addEventListener("click", copyXml);
+  $("url").addEventListener("keydown", e=>{ if(e.key==="Enter") loadFromUrl(); });
+
+  // Same-origin preload: ?src=feed.xml lets Claude fetch a CORS-blocked host, drop the
+  // result next to this page, and hand you a link that lists episodes with no CORS fetch.
+  const srcParam = new URLSearchParams(location.search).get("src");
+  if(srcParam){
+    fetch(srcParam).then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
+      .then(parseXml)
+      .catch(e=>showErr("預載 feed 失敗（"+e.message+"）。改用貼上 XML 原始碼。"));
+  }
+})();
+</script>
+</body>
+</html>
