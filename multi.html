@@ -113,7 +113,10 @@
 <section>
   <div class="step"><span class="idx">1</span><h2>載入 RSS（可反覆載入多個節目）</h2></div>
   <label class="field" for="url">RSS 網址（或同源檔名，如 src.xml）</label>
-  <input type="url" id="url" placeholder="https://feed.firstory.me/rss/user/..." autocomplete="off">
+  <div style="display:flex;gap:8px">
+    <input type="url" id="url" placeholder="https://feed.firstory.me/rss/user/..." autocomplete="off" style="flex:1;min-width:0">
+    <button class="ghost" id="clearUrl" title="清除網址" style="flex:none;padding:11px 16px">✕</button>
+  </div>
   <div class="row">
     <button id="loadBtn">抓取單集</button>
     <button class="ghost" id="resetBtn">清空重來</button>
@@ -609,6 +612,7 @@
   $("search").addEventListener("input", ()=>{ filterQuery = $("search").value.trim().toLowerCase(); applyFilter(); });
   $("saveSrcBtn").addEventListener("click", saveToSrc);
   $("srcSelect").addEventListener("change", ()=>loadFromSrc($("srcSelect").value));
+  $("clearUrl").addEventListener("click", ()=>{ $("url").value=""; $("url").focus(); });
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
   $("pubBtn").addEventListener("click", publishToGitHub);
