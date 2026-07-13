@@ -38,6 +38,8 @@
     background:#fff;border:1.5px solid var(--line);border-radius:2px;padding:12px 14px;
   }
   input[type=url]:focus,input[type=text]:focus,input[type=password]:focus,textarea:focus{outline:none;border-color:var(--moss)}
+  select{width:100%;font-family:inherit;font-size:14px;color:var(--ink);background:#fff;border:1.5px solid var(--line);border-radius:2px;padding:12px 14px}
+  select:focus{outline:none;border-color:var(--moss)}
   #pubBtn{background:var(--moss-deep);border-color:var(--moss-deep)}
   #pubBtn:hover{background:var(--ink);border-color:var(--ink)}
   details#ghSettings summary{cursor:pointer;font-size:12px;color:var(--moss-deep);padding:4px 0}
@@ -116,6 +118,8 @@
     <button id="loadBtn">抓取單集</button>
     <button class="ghost" id="resetBtn">清空重來</button>
   </div>
+  <label class="field" for="srcSelect" style="margin-top:14px">或從來源庫（src/）選一個已存的：</label>
+  <select id="srcSelect"><option value="">— 來源庫 —</option></select>
   <div class="altline">抓不到？可能是該站擋跨網域請求。<a id="togglePaste">改用貼上 XML 原始碼 →</a></div>
   <div id="pasteWrap">
     <label class="field" for="xml">在瀏覽器打開 RSS 網址，全選內容貼進來：</label>
@@ -419,6 +423,41 @@
     parseXml(text);
   }
 
+  function ghAuthHeader(extra){
+    const token = $("ghToken").value.trim() || localStorage.getItem("yoto_gh_token") || "";
+    const h = Object.assign({}, extra);
+    if(token) h["Authorization"] = "Bearer " + token;
+    return h;
+  }
+
+  // Populate the dropdown from the repo's src/ folder (GitHub API list; public read, token optional).
+  async function loadSrcList(){
+    const sel = $("srcSelect");
+    try{
+      const r = await fetch("https://api.github.com/repos/" + GH_REPO + "/contents/src",
+                            {headers: ghAuthHeader({"Accept":"application/vnd.github+json"})});
+      sel.innerHTML = '<option value="">— 來源庫 —</option>';
+      if(!r.ok) return;   // 404 = src/ not created yet; leave dropdown empty
+      const list = await r.json();
+      list.filter(f=>f.type==="file" && /\.xml$/i.test(f.name))
+          .sort((a,b)=>a.name.localeCompare(b.name))
+          .forEach(f=>{ const o=document.createElement("option"); o.value=f.name; o.textContent=f.name.replace(/\.xml$/i,""); sel.appendChild(o); });
+    }catch(e){ /* library is optional; ignore */ }
+  }
+
+  // Load a src/ file's content via the GitHub API raw media type (fresh, no Pages-rebuild wait, handles >1MB).
+  async function loadFromSrc(name){
+    if(!name) return;
+    clearErr();
+    try{
+      const url = "https://api.github.com/repos/" + GH_REPO + "/contents/src/" + encodeURIComponent(name);
+      const r = await fetch(url, {headers: ghAuthHeader({"Accept":"application/vnd.github.raw"})});
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      parseXml(await r.text());
+    }catch(e){ showErr("從來源庫載入失敗（"+e.message+"）。"); }
+    $("srcSelect").value = "";   // reset so re-picking the same item fires change again
+  }
+
   function buildFeed(){
     // Clone the first feed's channel as template, drop its items, append the whole basket verbatim.
     if(feeds.length===0 || basket.size===0) return "";
@@ -545,7 +584,8 @@
     const btn=$("saveSrcBtn"); btn.disabled=true; const lb=btn.textContent; btn.textContent="存入中…"; clearErr();
     try{
       await ghPutFile(path, feeds[activeFeed].raw, token, "Save source "+path);
-      showOk("已存入 "+path+"（約 1 分鐘後在 repo 生效）。日後可用同源網址載入：src/"+safe+".xml");
+      showOk("已存入 "+path+"，已加進上方「來源庫」下拉，日後直接選取即可載入。");
+      loadSrcList();   // refresh dropdown so the newly saved source shows up
     }catch(e){ showErr("存入失敗："+e.message); }
     finally{ btn.disabled=false; btn.textContent=lb; }
   }
@@ -568,6 +608,7 @@
   $("clearBasket").addEventListener("click", ()=>{ if(basket.size && !confirm("清空籃子裡全部 "+basket.size+" 集？")) return; basket.clear(); renderList(); renderBasket(); });
   $("search").addEventListener("input", ()=>{ filterQuery = $("search").value.trim().toLowerCase(); applyFilter(); });
   $("saveSrcBtn").addEventListener("click", saveToSrc);
+  $("srcSelect").addEventListener("change", ()=>loadFromSrc($("srcSelect").value));
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
   $("pubBtn").addEventListener("click", publishToGitHub);
@@ -575,6 +616,7 @@
   $("clearTok").addEventListener("click", ()=>{ localStorage.removeItem(LS_TOKEN); $("ghToken").value=""; showOk("已清除本機儲存的 token。"); });
   $("ghToken").value = localStorage.getItem(LS_TOKEN) || "";
   $("url").addEventListener("keydown", e=>{ if(e.key==="Enter") loadFromUrl(); });
+  loadSrcList();   // populate the src/ library dropdown on startup
 
   // Same-origin preload: ?src=feed.xml (loads one feed; load more via the URL box / paste, basket accumulates)
   const srcParam = new URLSearchParams(location.search).get("src");
