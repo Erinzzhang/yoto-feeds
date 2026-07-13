@@ -136,6 +136,7 @@
       <button class="ghost" id="selNone">全移除</button>
     </div>
   </div>
+  <input type="text" id="search" placeholder="搜尋本節目標題關鍵字…" style="margin-bottom:10px">
   <ul id="eps"></ul>
 </section>
 
@@ -186,6 +187,7 @@
   let items = [];               // active feed's <item> elements (mirror of feeds[activeFeed].items)
   let sourceChanTitle = "";     // active feed's channel title (for labelling basket rows)
   let basket = new Map();       // key -> { node: <item> clone, feed: title }  (persists across feeds/tabs)
+  let filterQuery = "";         // keyword filter for the active feed's list
 
   const PROXIES = [
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
@@ -278,6 +280,7 @@
     if(activeFeed<0 || !feeds[activeFeed]){ $("listSection").style.display="none"; return; }
     const f = feeds[activeFeed];
     items = f.items; sourceChanTitle = f.title;   // basket rows get labelled with the active feed's title
+    $("search").value=""; filterQuery="";         // search is per-feed; reset when switching tabs
     $("fTitle").textContent = f.title;
     $("fCount").textContent = "共 " + f.items.length + " 集";
     $("feedMeta").className = "show";
@@ -334,28 +337,51 @@
       ul.appendChild(li);
     });
     updateCount();
+    applyFilter();
+  }
+
+  function applyFilter(){
+    Array.from($("eps").children).forEach(li=>{
+      const t = ((li.querySelector(".ep-title")||{}).textContent || "").toLowerCase();
+      li.style.display = (!filterQuery || t.includes(filterQuery)) ? "" : "none";
+    });
   }
 
   function renderBasket(){
     const ul = $("basket"); ul.innerHTML="";
-    const feeds = new Set();
-    basket.forEach((v,key)=>{
-      feeds.add(v.feed);
+    const feedTitles = new Set();
+    const entries = [...basket];   // insertion order == output order
+    entries.forEach(([key,v],idx)=>{
+      feedTitles.add(v.feed);
       const li = document.createElement("li"); li.className="ep basket-row";
       const body = document.createElement("div"); body.className="ep-body";
       const t = document.createElement("div"); t.className="ep-title";
       t.textContent = ((v.node.querySelector("title")||{}).textContent || "（無標題）").trim();
       const meta = document.createElement("div"); meta.className="ep-meta";
-      const fs = document.createElement("span"); fs.textContent = "來自：" + v.feed; meta.appendChild(fs);
+      const fs = document.createElement("span"); fs.textContent = (idx+1)+"． 來自：" + v.feed; meta.appendChild(fs);
       body.appendChild(t); body.appendChild(meta);
+      const up = document.createElement("button"); up.className="ghost"; up.textContent="▲"; up.title="上移"; up.disabled = idx===0;
+      up.addEventListener("click", ()=>moveBasket(key,-1));
+      const dn = document.createElement("button"); dn.className="ghost"; dn.textContent="▼"; dn.title="下移"; dn.disabled = idx===entries.length-1;
+      dn.addEventListener("click", ()=>moveBasket(key,1));
       const rm = document.createElement("button"); rm.className="ghost"; rm.textContent="移除";
       rm.addEventListener("click", ()=>{ basket.delete(key); renderList(); renderBasket(); });
-      li.appendChild(body); li.appendChild(rm);
+      li.appendChild(body); li.appendChild(up); li.appendChild(dn); li.appendChild(rm);
       ul.appendChild(li);
     });
     $("basketN").textContent = basket.size;
-    $("basketFeeds").textContent = feeds.size;
+    $("basketFeeds").textContent = feedTitles.size;
     $("basketSection").style.display = basket.size ? "block" : "none";
+  }
+
+  function moveBasket(key, dir){
+    const entries = [...basket];
+    const i = entries.findIndex(e=>e[0]===key);
+    const j = i + dir;
+    if(i<0 || j<0 || j>=entries.length) return;
+    const tmp = entries[i]; entries[i]=entries[j]; entries[j]=tmp;
+    basket = new Map(entries);   // rebuild in new order; buildFeed emits items in this order
+    renderBasket();
   }
 
   function updateCount(){
@@ -504,6 +530,7 @@
   $("selAll").addEventListener("click", ()=>{ items.forEach(it=>{ const k=keyOf(it); if(!basket.has(k)) basket.set(k,{node:it.cloneNode(true),feed:sourceChanTitle}); }); renderList(); renderBasket(); });
   $("selNone").addEventListener("click", ()=>{ items.forEach(it=>basket.delete(keyOf(it))); renderList(); renderBasket(); });
   $("clearBasket").addEventListener("click", ()=>{ if(basket.size && !confirm("清空籃子裡全部 "+basket.size+" 集？")) return; basket.clear(); renderList(); renderBasket(); });
+  $("search").addEventListener("input", ()=>{ filterQuery = $("search").value.trim().toLowerCase(); applyFilter(); });
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
   $("pubBtn").addEventListener("click", publishToGitHub);
