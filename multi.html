@@ -169,7 +169,9 @@
   <div class="step"><span class="idx">3</span><h2>產生 Feed</h2></div>
   <label class="field" for="cardTitle">這張卡的名稱（會寫進 feed 標題）</label>
   <input type="url" id="cardTitle" placeholder="例如：小福 4 歲睡前故事" style="font-family:Georgia,'Songti TC',serif">
-  <label class="field" for="destName">目標檔名（要更新哪張卡的 feed）</label>
+  <label class="field" for="cardSelect" style="margin-top:10px">選現有卡片來更新（cards/），或在下方輸入新檔名建立新卡</label>
+  <select id="cardSelect"><option value="">— 現有卡片 —</option></select>
+  <label class="field" for="destName" style="margin-top:10px">目標檔名（存進 cards/，要更新哪張卡）</label>
   <input type="text" id="destName" value="feed.xml">
   <div class="row" style="margin-top:12px">
     <button id="pubBtn">發佈到 Yoto（一鍵更新 repo）</button>
@@ -467,6 +469,21 @@
     $("srcSelect").value = "";   // reset so re-picking the same item fires change again
   }
 
+  // Populate the "existing cards" dropdown from the repo's cards/ folder (same design as src/).
+  async function loadCardsList(){
+    const sel = $("cardSelect");
+    try{
+      const r = await fetch("https://api.github.com/repos/" + GH_REPO + "/contents/cards",
+                            {headers: ghAuthHeader({"Accept":"application/vnd.github+json"})});
+      sel.innerHTML = '<option value="">— 現有卡片 —</option>';
+      if(!r.ok) return;   // 404 = cards/ not created yet
+      const list = await r.json();
+      list.filter(f=>f.type==="file" && /\.xml$/i.test(f.name))
+          .sort((a,b)=>a.name.localeCompare(b.name))
+          .forEach(f=>{ const o=document.createElement("option"); o.value=f.name; o.textContent=f.name; sel.appendChild(o); });
+    }catch(e){ /* optional */ }
+  }
+
   // Populate the refresh panel with a checkbox per feed in feeds.json (same-origin registry).
   async function loadFeedsRegistry(){
     try{
@@ -546,11 +563,15 @@
   const GH_REPO = "Erinzzhang/yoto-feeds";
   const LS_TOKEN = "yoto_gh_token";
 
+  function destFile(){
+    let n = ($("destName").value.trim() || "feed.xml").replace(/[\/\\?%*:|"<>\s]+/g,"_");
+    if(!/\.xml$/i.test(n)) n += ".xml";
+    return n;   // filename only; lives under cards/
+  }
   function feedUrl(){
     const owner = GH_REPO.split("/")[0].toLowerCase();
     const repo = GH_REPO.split("/")[1];
-    const dest = $("destName").value.trim() || "feed.xml";
-    return "https://" + owner + ".github.io/" + repo + "/" + dest;
+    return "https://" + owner + ".github.io/" + repo + "/cards/" + destFile();
   }
   function copyUrl(){
     const url = feedUrl();
@@ -573,12 +594,12 @@
     const token = $("ghToken").value.trim();
     if(!token){ showErr("先在「GitHub 設定」貼上 token。"); $("ghSettings").open = true; return; }
     localStorage.setItem(LS_TOKEN, token);
-    const dest = $("destName").value.trim() || "feed.xml";
+    const dest = "cards/" + destFile();
     const xml = buildFeed();
     const btn = $("pubBtn"); btn.disabled = true; const label = btn.textContent; btn.textContent = "發佈中…";
     clearErr();
     try{
-      const api = "https://api.github.com/repos/" + GH_REPO + "/contents/" + encodeURIComponent(dest);
+      const api = "https://api.github.com/repos/" + GH_REPO + "/contents/" + dest.split("/").map(encodeURIComponent).join("/");
       const headers = { "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json" };
       let sha;
       const cur = await fetch(api, {headers});
@@ -596,6 +617,7 @@
       const put = await fetch(api, {method:"PUT", headers, body:JSON.stringify(body)});
       if(!put.ok){ throw new Error("HTTP "+put.status+" "+(await put.text()).slice(0,140)); }
       showOk("已發佈 "+basket.size+" 集！約 1 分鐘後生效。網址（首次製卡貼這個，之後更新免碰）：" + feedUrl());
+      loadCardsList();   // refresh so a newly created card shows in the dropdown
     }catch(e){
       showErr("發佈失敗：" + e.message);
     }finally{
@@ -655,6 +677,7 @@
   $("search").addEventListener("input", ()=>{ filterQuery = $("search").value.trim().toLowerCase(); applyFilter(); });
   $("saveSrcBtn").addEventListener("click", saveToSrc);
   $("srcSelect").addEventListener("change", ()=>loadFromSrc($("srcSelect").value));
+  $("cardSelect").addEventListener("change", ()=>{ if($("cardSelect").value) $("destName").value = $("cardSelect").value; });
   $("clearUrl").addEventListener("click", ()=>{ $("url").value=""; $("url").focus(); });
   $("refreshBtn").addEventListener("click", refreshSelected);
   $("genBtn").addEventListener("click", download);
@@ -665,6 +688,7 @@
   $("ghToken").value = localStorage.getItem(LS_TOKEN) || "";
   $("url").addEventListener("keydown", e=>{ if(e.key==="Enter") loadFromUrl(); });
   loadSrcList();          // populate the src/ library dropdown on startup
+  loadCardsList();        // populate the existing-cards dropdown from cards/
   loadFeedsRegistry();    // populate the refresh panel's checkboxes from feeds.json
 
   // Same-origin preload: ?src=feed.xml (loads one feed; load more via the URL box / paste, basket accumulates)
