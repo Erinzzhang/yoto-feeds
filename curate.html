@@ -72,7 +72,7 @@
   .count b{color:var(--moss-deep);font-size:14px}
   .selactions{display:flex;gap:8px}
   .selactions button{padding:7px 12px;font-size:11px}
-  ul#eps{list-style:none}
+  ul#eps{list-style:none;max-height:55vh;overflow-y:auto;overscroll-behavior:contain;border:1.5px solid var(--line);border-radius:2px;padding:8px;background:#faf9f5}
   li.ep{
     display:flex;gap:12px;align-items:flex-start;padding:12px 14px;
     background:#fff;border:1.5px solid var(--line);border-radius:2px;margin-bottom:8px;
@@ -359,7 +359,13 @@
       const headers = { "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json" };
       let sha;
       const cur = await fetch(api, {headers});
-      if(cur.ok){ sha = (await cur.json()).sha; }
+      if(cur.ok){
+        sha = (await cur.json()).sha;
+        if(!confirm("「"+dest+"」已存在。發佈會覆蓋它，該卡現有內容將被取代。確定覆蓋？")){
+          showOk("已取消，未覆蓋「"+dest+"」。");
+          return;   // finally re-enables the button
+        }
+      }
       else if(cur.status === 401 || cur.status === 403){ throw new Error("token 無效或權限不足（"+cur.status+"）。確認 token 有 yoto-feeds 的 Contents 讀寫。"); }
       else if(cur.status !== 404){ throw new Error("讀取現況失敗 HTTP "+cur.status); }
       const body = { message:"Update "+dest+" via curator", content:b64(xml) };
