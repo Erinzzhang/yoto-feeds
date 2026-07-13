@@ -136,6 +136,7 @@
   <input type="text" id="destName" value="feed.xml">
   <div class="row" style="margin-top:12px">
     <button id="pubBtn">發佈到 Yoto（一鍵更新 repo）</button>
+    <button class="ghost" id="copyUrlBtn">複製發佈網址</button>
   </div>
   <div class="note">按「發佈」直接把選中單集寫進 GitHub 的該檔名，約 1 分鐘後 Yoto 卡自動更新（首次製卡才需手動貼網址）。第一次用請先在下方「GitHub 設定」貼上 token。</div>
   <details id="ghSettings">
@@ -337,6 +338,21 @@
   const GH_REPO = "Erinzzhang/yoto-feeds";
   const LS_TOKEN = "yoto_gh_token";
 
+  // Single source of truth for the public feed URL (owner.github.io/repo/dest).
+  function feedUrl(){
+    const owner = GH_REPO.split("/")[0].toLowerCase();
+    const repo = GH_REPO.split("/")[1];
+    const dest = $("destName").value.trim() || "feed.xml";
+    return "https://" + owner + ".github.io/" + repo + "/" + dest;
+  }
+  function copyUrl(){
+    const url = feedUrl();
+    navigator.clipboard.writeText(url).then(
+      ()=>showOk("已複製網址：" + url),
+      ()=>showErr("複製失敗（可能非 https 環境）。網址：" + url)
+    );
+  }
+
   // UTF-8 safe base64 (btoa is latin1-only; chunked to avoid stack overflow on big feeds)
   function b64(str){
     const bytes = new TextEncoder().encode(str);
@@ -372,8 +388,7 @@
       if(sha) body.sha = sha;
       const put = await fetch(api, {method:"PUT", headers, body:JSON.stringify(body)});
       if(!put.ok){ throw new Error("HTTP "+put.status+" "+(await put.text()).slice(0,140)); }
-      const url = "https://erinzzhang.github.io/" + GH_REPO.split("/")[1] + "/" + dest;
-      showOk("已發佈！約 1 分鐘後生效。網址（首次製卡貼這個，之後更新免碰）：" + url);
+      showOk("已發佈！約 1 分鐘後生效。網址（首次製卡貼這個，之後更新免碰）：" + feedUrl());
     }catch(e){
       showErr("發佈失敗：" + e.message);
     }finally{
@@ -398,6 +413,7 @@
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
   $("pubBtn").addEventListener("click", publishToGitHub);
+  $("copyUrlBtn").addEventListener("click", copyUrl);
   $("clearTok").addEventListener("click", ()=>{ localStorage.removeItem(LS_TOKEN); $("ghToken").value=""; showOk("已清除本機儲存的 token。"); });
   $("ghToken").value = localStorage.getItem(LS_TOKEN) || "";   // restore remembered token
   $("url").addEventListener("keydown", e=>{ if(e.key==="Enter") loadFromUrl(); });
