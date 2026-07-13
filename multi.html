@@ -42,7 +42,7 @@
   select:focus{outline:none;border-color:var(--moss)}
   #pubBtn{background:var(--moss-deep);border-color:var(--moss-deep)}
   #pubBtn:hover{background:var(--ink);border-color:var(--ink)}
-  details#ghSettings summary{cursor:pointer;font-size:12px;color:var(--moss-deep);padding:4px 0}
+  details#ghSettings summary,details#refreshPanel summary{cursor:pointer;font-size:12px;color:var(--moss-deep);padding:4px 0}
   textarea{min-height:120px;resize:vertical;line-height:1.4}
   .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
   button{
@@ -123,6 +123,12 @@
   </div>
   <label class="field" for="srcSelect" style="margin-top:14px">或從來源庫（src/）選一個已存的：</label>
   <select id="srcSelect"><option value="">— 來源庫 —</option></select>
+  <details id="refreshPanel" style="margin-top:12px">
+    <summary>更新來源庫（重抓上游，勾選要更新的）</summary>
+    <div id="refreshList" style="margin-top:10px"></div>
+    <div class="row"><button class="ghost" id="refreshBtn">更新選取的來源</button></div>
+    <div class="note">重抓是伺服器端（GitHub Action）做的，token 需含 Actions 讀寫。觸發後約 1-2 分鐘完成，再重新選取該來源即是新內容。</div>
+  </details>
   <div class="altline">抓不到？可能是該站擋跨網域請求。<a id="togglePaste">改用貼上 XML 原始碼 →</a></div>
   <div id="pasteWrap">
     <label class="field" for="xml">在瀏覽器打開 RSS 網址，全選內容貼進來：</label>
@@ -461,6 +467,43 @@
     $("srcSelect").value = "";   // reset so re-picking the same item fires change again
   }
 
+  // Populate the refresh panel with a checkbox per feed in feeds.json (same-origin registry).
+  async function loadFeedsRegistry(){
+    try{
+      const r = await fetch("feeds.json", {cache:"no-store"});
+      if(!r.ok) return;
+      const feeds = await r.json();
+      const box = $("refreshList"); box.innerHTML="";
+      feeds.forEach(f=>{
+        const lab = document.createElement("label");
+        lab.style.cssText = "display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;cursor:pointer";
+        const cb = document.createElement("input"); cb.type="checkbox"; cb.value=f.name; cb.className="rfk";
+        cb.style.cssText = "width:17px;height:17px;accent-color:var(--moss);flex:none";
+        const sp = document.createElement("span"); sp.textContent=f.name;
+        lab.appendChild(cb); lab.appendChild(sp); box.appendChild(lab);
+      });
+    }catch(e){ /* registry optional */ }
+  }
+
+  // Trigger the server-side refresh (GitHub Action) for the checked feeds. Needs token with Actions:write.
+  async function refreshSelected(){
+    const names = Array.from(document.querySelectorAll(".rfk:checked")).map(c=>c.value);
+    if(names.length===0){ showErr("先勾選要更新的來源。"); return; }
+    const token = $("ghToken").value.trim() || localStorage.getItem(LS_TOKEN) || "";
+    if(!token){ showErr("設定 token（需含 Actions 讀寫）才能觸發更新。"); $("ghSettings").open=true; return; }
+    const btn=$("refreshBtn"); btn.disabled=true; const lb=btn.textContent; btn.textContent="觸發中…"; clearErr();
+    try{
+      const url = "https://api.github.com/repos/" + GH_REPO + "/actions/workflows/refresh-src.yml/dispatches";
+      const r = await fetch(url, {method:"POST",
+        headers:{ "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json" },
+        body: JSON.stringify({ ref:"main", inputs:{ feeds: names.join(",") } }) });
+      if(r.status===204){ showOk("已觸發更新："+names.join("、")+"。約 1-2 分鐘後重新選取該來源即是新內容。"); }
+      else if(r.status===403||r.status===404){ throw new Error("HTTP "+r.status+"：token 需要 Actions 讀寫權限，且 workflow 需已存在。"); }
+      else { throw new Error("HTTP "+r.status+" "+(await r.text()).slice(0,120)); }
+    }catch(e){ showErr("觸發失敗："+e.message); }
+    finally{ btn.disabled=false; btn.textContent=lb; }
+  }
+
   function buildFeed(){
     // Clone the first feed's channel as template, drop its items, append the whole basket verbatim.
     if(feeds.length===0 || basket.size===0) return "";
@@ -613,6 +656,7 @@
   $("saveSrcBtn").addEventListener("click", saveToSrc);
   $("srcSelect").addEventListener("change", ()=>loadFromSrc($("srcSelect").value));
   $("clearUrl").addEventListener("click", ()=>{ $("url").value=""; $("url").focus(); });
+  $("refreshBtn").addEventListener("click", refreshSelected);
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
   $("pubBtn").addEventListener("click", publishToGitHub);
@@ -620,7 +664,8 @@
   $("clearTok").addEventListener("click", ()=>{ localStorage.removeItem(LS_TOKEN); $("ghToken").value=""; showOk("已清除本機儲存的 token。"); });
   $("ghToken").value = localStorage.getItem(LS_TOKEN) || "";
   $("url").addEventListener("keydown", e=>{ if(e.key==="Enter") loadFromUrl(); });
-  loadSrcList();   // populate the src/ library dropdown on startup
+  loadSrcList();          // populate the src/ library dropdown on startup
+  loadFeedsRegistry();    // populate the refresh panel's checkboxes from feeds.json
 
   // Same-origin preload: ?src=feed.xml (loads one feed; load more via the URL box / paste, basket accumulates)
   const srcParam = new URLSearchParams(location.search).get("src");
