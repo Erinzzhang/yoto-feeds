@@ -72,6 +72,13 @@
   .count b{color:var(--moss-deep);font-size:14px}
   .selactions{display:flex;gap:8px}
   .selactions button{padding:7px 12px;font-size:11px}
+  #tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px;-webkit-overflow-scrolling:touch}
+  .tab{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;flex:none;cursor:pointer;font-size:12px;padding:8px 12px;border:1.5px solid var(--line);border-radius:2px;background:#fff;color:var(--dim)}
+  .tab:hover{border-color:var(--moss)}
+  .tab.active{background:var(--moss-deep);border-color:var(--moss-deep);color:var(--paper)}
+  .tab-x{opacity:.55;font-weight:700}
+  .tab-x:hover{opacity:1;color:var(--clay)}
+  .tab.active .tab-x:hover{color:#f3c7b2}
   ul#eps,ul#basket{list-style:none;max-height:55vh;overflow-y:auto;overscroll-behavior:contain;border:1.5px solid var(--line);border-radius:2px;padding:8px;background:#faf9f5}
   ul#basket{max-height:40vh;border-color:var(--moss);background:var(--pick)}
   li.ep{
@@ -98,7 +105,7 @@
 <header>
   <div class="kick">多節目混合 · Podcast → Yoto</div>
   <h1>混合<span class="n">策展</span>台</h1>
-  <p class="sub">從多份 podcast RSS 跨節目挑單集，累積成一「籃」，合成一份自訂 feed。載入一份挑完，再載下一份，籃子會累加。音檔一律指回原伺服器，不下載、不轉檔。</p>
+  <p class="sub">從多份 podcast RSS 跨節目挑單集。每載入一份成為一個分頁可切換，勾選的單集累積成一「籃」，合成一份自訂 feed。音檔一律指回原伺服器，不下載、不轉檔。</p>
 </header>
 
 <section>
@@ -120,6 +127,7 @@
 
 <section id="listSection" style="display:none">
   <div class="step"><span class="idx">2</span><h2>挑選單集（勾選即加入籃子）</h2></div>
+  <div id="tabs" style="display:none"></div>
   <div id="feedMeta"><div class="ft" id="fTitle"></div><div class="fc" id="fCount"></div></div>
   <div class="barrow">
     <span class="count">本節目已加入 <b id="selN">0</b> / <span id="totN">0</span> 集</span>
@@ -173,11 +181,11 @@
 (function(){
   "use strict";
   const $ = id => document.getElementById(id);
-  let sourceDoc = null;         // currently displayed feed's parsed Document
-  let items = [];               // current feed's <item> elements
-  let sourceChanTitle = "";     // current feed's channel title (for labelling basket rows)
-  let basket = new Map();       // key -> { node: <item> clone, feed: title }  (persists across feeds)
-  let channelTemplate = null;   // first loaded feed's Document (channel metadata + namespaces)
+  let feeds = [];               // [{ doc, items, title, sig }] — every loaded feed, one per tab
+  let activeFeed = -1;          // index into feeds (which tab is shown)
+  let items = [];               // active feed's <item> elements (mirror of feeds[activeFeed].items)
+  let sourceChanTitle = "";     // active feed's channel title (for labelling basket rows)
+  let basket = new Map();       // key -> { node: <item> clone, feed: title }  (persists across feeds/tabs)
 
   const PROXIES = [
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
@@ -238,21 +246,53 @@
     const feedItems = Array.from(doc.querySelectorAll("channel > item"));
     if(feedItems.length===0){ showErr("這份 feed 裡沒有任何單集（<item>）。"); return; }
 
-    sourceDoc = doc;
-    items = feedItems;
-    const chanTitle = (chan.querySelector(":scope > title")||{}).textContent || "（未命名節目）";
-    sourceChanTitle = chanTitle.trim();
-    if(!channelTemplate) channelTemplate = doc.cloneNode(true);   // first feed sets the channel template
+    const title = ((chan.querySelector(":scope > title")||{}).textContent || "（未命名節目）").trim();
+    const entry = { doc, items:feedItems, title, sig: title+"|"+feedItems.length };
+    const existing = feeds.findIndex(f=>f.sig===entry.sig);
+    if(existing>=0){ feeds[existing]=entry; activeFeed=existing; }   // reloading same feed refreshes its tab
+    else { feeds.push(entry); activeFeed=feeds.length-1; }           // a new feed opens a new tab (no overwrite)
 
-    $("fTitle").textContent = sourceChanTitle;
-    $("fCount").textContent = "共 " + items.length + " 集";
+    renderTabs();
+    showActiveFeed();
+    $("out").className = "show";
+    if(!$("cardTitle").value) $("cardTitle").value = feeds[0].title + "（精選）";
+  }
+
+  function renderTabs(){
+    const box = $("tabs"); box.innerHTML="";
+    feeds.forEach((f,i)=>{
+      const tab = document.createElement("div");
+      tab.className = "tab" + (i===activeFeed?" active":"");
+      const lbl = document.createElement("span");
+      lbl.textContent = f.title + " · " + f.items.length;
+      lbl.addEventListener("click", ()=>{ activeFeed=i; renderTabs(); showActiveFeed(); });
+      const x = document.createElement("span"); x.className="tab-x"; x.textContent="✕"; x.title="關閉這個分頁";
+      x.addEventListener("click", e=>{ e.stopPropagation(); closeFeed(i); });
+      tab.appendChild(lbl); tab.appendChild(x);
+      box.appendChild(tab);
+    });
+    box.style.display = feeds.length ? "flex" : "none";
+  }
+
+  function showActiveFeed(){
+    if(activeFeed<0 || !feeds[activeFeed]){ $("listSection").style.display="none"; return; }
+    const f = feeds[activeFeed];
+    items = f.items; sourceChanTitle = f.title;   // basket rows get labelled with the active feed's title
+    $("fTitle").textContent = f.title;
+    $("fCount").textContent = "共 " + f.items.length + " 集";
     $("feedMeta").className = "show";
-
+    $("listSection").style.display = "block";
     renderList();
     renderBasket();
-    $("listSection").style.display = "block";
-    $("out").className = "show";
-    if(!$("cardTitle").value) $("cardTitle").value = sourceChanTitle + "（精選）";
+  }
+
+  function closeFeed(i){
+    feeds.splice(i,1);
+    if(activeFeed===i) activeFeed = Math.min(i, feeds.length-1);
+    else if(activeFeed>i) activeFeed--;   // keep pointing at the same feed after the splice
+    renderTabs();
+    if(feeds.length===0){ items=[]; sourceChanTitle=""; $("listSection").style.display="none"; }
+    else showActiveFeed();
   }
 
   function renderList(){
@@ -351,8 +391,8 @@
 
   function buildFeed(){
     // Clone the first feed's channel as template, drop its items, append the whole basket verbatim.
-    if(!channelTemplate || basket.size===0) return "";
-    const clone = channelTemplate.cloneNode(true);
+    if(feeds.length===0 || basket.size===0) return "";
+    const clone = feeds[0].doc.cloneNode(true);   // first tab = channel template
     const chan = clone.querySelector("channel");
     Array.from(clone.querySelectorAll("channel > item")).forEach(it=>chan.removeChild(it));
     basket.forEach(v=>{ chan.appendChild(clone.importNode(v.node, true)); });   // importNode: cross-document
@@ -449,9 +489,9 @@
   }
 
   function reset(){
-    sourceDoc=null; items=[]; sourceChanTitle=""; basket.clear(); channelTemplate=null;
+    feeds=[]; activeFeed=-1; items=[]; sourceChanTitle=""; basket.clear();
     $("url").value=""; $("xml").value=""; $("cardTitle").value="";
-    $("eps").innerHTML=""; $("basket").innerHTML="";
+    $("eps").innerHTML=""; $("basket").innerHTML=""; $("tabs").innerHTML=""; $("tabs").style.display="none";
     $("listSection").style.display="none"; $("basketSection").style.display="none";
     $("out").className=""; $("feedMeta").className=""; clearErr();
     $("ok").className="msg ok"; $("pasteWrap").classList.remove("show");
