@@ -129,6 +129,9 @@
   <div class="step"><span class="idx">2</span><h2>挑選單集（勾選即加入籃子）</h2></div>
   <div id="tabs" style="display:none"></div>
   <div id="feedMeta"><div class="ft" id="fTitle"></div><div class="fc" id="fCount"></div></div>
+  <label class="field" for="srcName" style="margin-top:4px">來源名稱（存成 src/名稱.xml，供日後直接載入）</label>
+  <input type="text" id="srcName" placeholder="例如：故事發射台">
+  <div class="row"><button class="ghost" id="saveSrcBtn">存入 src/</button></div>
   <div class="barrow">
     <span class="count">本節目已加入 <b id="selN">0</b> / <span id="totN">0</span> 集</span>
     <div class="selactions">
@@ -249,7 +252,7 @@
     if(feedItems.length===0){ showErr("這份 feed 裡沒有任何單集（<item>）。"); return; }
 
     const title = ((chan.querySelector(":scope > title")||{}).textContent || "（未命名節目）").trim();
-    const entry = { doc, items:feedItems, title, sig: title+"|"+feedItems.length };
+    const entry = { doc, items:feedItems, title, sig: title+"|"+feedItems.length, raw:text };
     const existing = feeds.findIndex(f=>f.sig===entry.sig);
     if(existing>=0){ feeds[existing]=entry; activeFeed=existing; }   // reloading same feed refreshes its tab
     else { feeds.push(entry); activeFeed=feeds.length-1; }           // a new feed opens a new tab (no overwrite)
@@ -281,6 +284,7 @@
     const f = feeds[activeFeed];
     items = f.items; sourceChanTitle = f.title;   // basket rows get labelled with the active feed's title
     $("search").value=""; filterQuery="";         // search is per-feed; reset when switching tabs
+    $("srcName").value = f.title;                  // default source name = channel title (editable before save)
     $("fTitle").textContent = f.title;
     $("fCount").textContent = "共 " + f.items.length + " 集";
     $("feedMeta").className = "show";
@@ -514,9 +518,41 @@
     }
   }
 
+  // Write any file to the repo (create or update). Shared by "存入 src/".
+  async function ghPutFile(path, contentStr, token, message){
+    const api = "https://api.github.com/repos/" + GH_REPO + "/contents/" + path.split("/").map(encodeURIComponent).join("/");
+    const headers = { "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json" };
+    let sha;
+    const cur = await fetch(api, {headers});
+    if(cur.ok){ sha = (await cur.json()).sha; }
+    else if(cur.status===401||cur.status===403){ throw new Error("token 無效或權限不足（"+cur.status+"）。確認 token 有 yoto-feeds 的 Contents 讀寫。"); }
+    else if(cur.status!==404){ throw new Error("讀取現況失敗 HTTP "+cur.status); }
+    const body = { message, content:b64(contentStr) };
+    if(sha) body.sha = sha;
+    const put = await fetch(api, {method:"PUT", headers, body:JSON.stringify(body)});
+    if(!put.ok){ throw new Error("HTTP "+put.status+" "+(await put.text()).slice(0,140)); }
+  }
+
+  async function saveToSrc(){
+    if(activeFeed<0 || !feeds[activeFeed]){ showErr("先載入一份 feed。"); return; }
+    const nm = $("srcName").value.trim();
+    if(!nm){ showErr("先給這個來源取個名字。"); return; }
+    const token = $("ghToken").value.trim();
+    if(!token){ showErr("設定 token 才能存入 src/。"); $("ghSettings").open=true; return; }
+    localStorage.setItem(LS_TOKEN, token);
+    const safe = nm.replace(/[\/\\?%*:|"<>\s]+/g,"_");   // filename-safe
+    const path = "src/" + safe + ".xml";
+    const btn=$("saveSrcBtn"); btn.disabled=true; const lb=btn.textContent; btn.textContent="存入中…"; clearErr();
+    try{
+      await ghPutFile(path, feeds[activeFeed].raw, token, "Save source "+path);
+      showOk("已存入 "+path+"（約 1 分鐘後在 repo 生效）。日後可用同源網址載入：src/"+safe+".xml");
+    }catch(e){ showErr("存入失敗："+e.message); }
+    finally{ btn.disabled=false; btn.textContent=lb; }
+  }
+
   function reset(){
     feeds=[]; activeFeed=-1; items=[]; sourceChanTitle=""; basket.clear();
-    $("url").value=""; $("xml").value=""; $("cardTitle").value="";
+    $("url").value=""; $("xml").value=""; $("cardTitle").value=""; $("srcName").value="";
     $("eps").innerHTML=""; $("basket").innerHTML=""; $("tabs").innerHTML=""; $("tabs").style.display="none";
     $("listSection").style.display="none"; $("basketSection").style.display="none";
     $("out").className=""; $("feedMeta").className=""; clearErr();
@@ -531,6 +567,7 @@
   $("selNone").addEventListener("click", ()=>{ items.forEach(it=>basket.delete(keyOf(it))); renderList(); renderBasket(); });
   $("clearBasket").addEventListener("click", ()=>{ if(basket.size && !confirm("清空籃子裡全部 "+basket.size+" 集？")) return; basket.clear(); renderList(); renderBasket(); });
   $("search").addEventListener("input", ()=>{ filterQuery = $("search").value.trim().toLowerCase(); applyFilter(); });
+  $("saveSrcBtn").addEventListener("click", saveToSrc);
   $("genBtn").addEventListener("click", download);
   $("copyBtn").addEventListener("click", copyXml);
   $("pubBtn").addEventListener("click", publishToGitHub);
