@@ -132,16 +132,16 @@
   <div class="step"><span class="idx">3</span><h2>產生 Feed</h2></div>
   <label class="field" for="cardTitle">這張卡的名稱（會寫進 feed 標題）</label>
   <input type="url" id="cardTitle" placeholder="例如：小福 4 歲睡前故事" style="font-family:Georgia,'Songti TC',serif">
-  <div class="row">
+  <label class="field" for="destName">目標檔名（要更新哪張卡的 feed）</label>
+  <input type="text" id="destName" value="feed.xml">
+  <div class="row" style="margin-top:12px">
     <button id="pubBtn">發佈到 Yoto（一鍵更新 repo）</button>
   </div>
-  <div class="note">按「發佈」直接把選中單集寫進 GitHub 的 <code>feed.xml</code>，約 1 分鐘後 Yoto 卡自動更新（首次製卡才需手動貼網址）。第一次用請先在下方「GitHub 設定」貼上 token。</div>
+  <div class="note">按「發佈」直接把選中單集寫進 GitHub 的該檔名，約 1 分鐘後 Yoto 卡自動更新（首次製卡才需手動貼網址）。第一次用請先在下方「GitHub 設定」貼上 token。</div>
   <details id="ghSettings">
     <summary>GitHub 設定（貼一次 token，存在本機瀏覽器）</summary>
     <label class="field" for="ghToken" style="margin-top:10px">細粒度 token（只授權 yoto-feeds 的 Contents 讀寫）</label>
     <input type="password" id="ghToken" placeholder="github_pat_..." autocomplete="off">
-    <label class="field" for="destName" style="margin-top:10px">目標檔名</label>
-    <input type="text" id="destName" value="feed.xml">
     <div class="altline"><a id="clearTok">清除已存的 token</a></div>
   </details>
   <div class="msg ok" id="ok"></div>
