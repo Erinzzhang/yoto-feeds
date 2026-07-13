@@ -1,0 +1,56 @@
+name: Refresh sources
+on:
+  workflow_dispatch:
+    inputs:
+      feeds:
+        description: 'Comma-separated feed names to refresh, or "all"'
+        required: false
+        default: 'all'
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch selected feeds
+        env:
+          SEL: ${{ github.event.inputs.feeds }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          sel = os.environ.get("SEL", "all").strip()
+          feeds = json.load(open("feeds.json", encoding="utf-8"))
+          want = None if sel in ("", "all") else set(s.strip() for s in sel.split(","))
+          os.makedirs("src", exist_ok=True)
+          for f in feeds:
+              if want is not None and f["name"] not in want:
+                  continue
+              safe = re.sub(r'[\/\\?%*:|"<>\s]+', '_', f["name"])
+              path = "src/%s.xml" % safe
+              try:
+                  req = urllib.request.Request(f["url"], headers={"User-Agent": "Mozilla/5.0"})
+                  data = urllib.request.urlopen(req, timeout=90).read()
+              except Exception as e:
+                  print("fetch failed:", f["name"], e); continue
+              head = data[:2000]
+              if b"<rss" not in head and b"<?xml" not in head:
+                  print("not xml, skip:", f["name"]); continue
+              old = open(path, "rb").read() if os.path.exists(path) else None
+              if old == data:
+                  print("unchanged:", f["name"]); continue
+              open(path, "wb").write(data); print("updated:", f["name"], len(data), "bytes")
+          PY
+      - name: Commit only if changed
+        env:
+          SEL: ${{ github.event.inputs.feeds }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A src
+          if git diff --cached --quiet; then
+            echo "no changes — nothing to commit"
+          else
+            git commit -m "Refresh sources: ${SEL:-all}"
+            git push
+          fi
