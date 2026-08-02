@@ -168,6 +168,7 @@
   let sourceDoc = null;   // parsed XML Document
   let items = [];         // array of <item> elements
   let selected = new Set();
+  let autoDesc = "", autoImage = "";   // last auto-filled values, so we know it's safe to overwrite on reload
 
   const PROXIES = [
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
@@ -222,14 +223,15 @@
     $("listSection").style.display = "block";
     $("out").className = "show";
     if(!$("cardTitle").value) $("cardTitle").value = chanTitle.trim() + "（精選）";
-    if(!$("cardDesc").value){
-      const chanDesc = (chan.querySelector(":scope > description")||{}).textContent || "";
-      $("cardDesc").value = chanDesc.trim();
-    }
-    if(!$("cardImage").value){
-      const chanImg = (chan.querySelector(":scope > image > url")||{}).textContent || "";
-      $("cardImage").value = chanImg.trim();
-    }
+
+    // Refill description/image from this newly-loaded source — but only if the
+    // field still holds what we last auto-filled, so a manual edit survives
+    // loading a different source instead of getting silently clobbered.
+    const chanDesc = ((chan.querySelector(":scope > description")||{}).textContent || "").trim();
+    const chanImg = ((chan.querySelector(":scope > image > url")||{}).textContent || "").trim();
+    const descEl = $("cardDesc"), imgEl = $("cardImage");
+    if(descEl.value === autoDesc){ descEl.value = chanDesc; autoDesc = chanDesc; }
+    if(imgEl.value === autoImage){ imgEl.value = chanImg; autoImage = chanImg; }
   }
 
   function getEnclosureUrl(item){
@@ -442,6 +444,7 @@
 
   function reset(){
     sourceDoc=null; items=[]; selected.clear();
+    autoDesc=""; autoImage="";
     $("url").value=""; $("xml").value=""; $("cardTitle").value="";
     $("cardDesc").value=""; $("cardImage").value="";
     $("eps").innerHTML=""; $("listSection").style.display="none";
