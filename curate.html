@@ -132,6 +132,10 @@
   <div class="step"><span class="idx">3</span><h2>產生 Feed</h2></div>
   <label class="field" for="cardTitle">這張卡的名稱（會寫進 feed 標題）</label>
   <input type="url" id="cardTitle" placeholder="例如：小福 4 歲睡前故事" style="font-family:Georgia,'Songti TC',serif">
+  <label class="field" for="cardDesc" style="margin-top:10px">這張卡的描述（會寫進 feed 描述，預帶來源描述，可自行修改）</label>
+  <textarea id="cardDesc" placeholder="例如：精選幾集陪睡前聽的故事" style="min-height:80px"></textarea>
+  <label class="field" for="cardImage" style="margin-top:10px">封面圖片網址（選填，留空則沿用來源封面）</label>
+  <input type="text" id="cardImage" placeholder="https://...">
   <label class="field" for="destName">目標檔名（要更新哪張卡的 feed）</label>
   <input type="text" id="destName" value="feed.xml">
   <div class="row" style="margin-top:12px">
@@ -218,6 +222,14 @@
     $("listSection").style.display = "block";
     $("out").className = "show";
     if(!$("cardTitle").value) $("cardTitle").value = chanTitle.trim() + "（精選）";
+    if(!$("cardDesc").value){
+      const chanDesc = (chan.querySelector(":scope > description")||{}).textContent || "";
+      $("cardDesc").value = chanDesc.trim();
+    }
+    if(!$("cardImage").value){
+      const chanImg = (chan.querySelector(":scope > image > url")||{}).textContent || "";
+      $("cardImage").value = chanImg.trim();
+    }
   }
 
   function getEnclosureUrl(item){
@@ -295,6 +307,44 @@
     parseXml(text);
   }
 
+  // Set (or create) a direct child of <channel> by tag name — works for prefixed
+  // tags too (e.g. "itunes:summary"), since tagName match ignores how the node
+  // was created.
+  function setChanChild(chan, doc, tag, text){
+    let el = Array.from(chan.children).find(c=>c.tagName===tag);
+    if(!el){ el = doc.createElement(tag); chan.appendChild(el); }
+    el.textContent = text;
+    return el;
+  }
+
+  // Apply the user-editable card title/description/image onto a channel,
+  // overriding whatever the source podcast originally shipped.
+  function applyCardMeta(chan, doc){
+    const cardTitle = $("cardTitle").value.trim();
+    if(cardTitle){
+      let tEl = chan.querySelector(":scope > title");
+      if(!tEl){ tEl = doc.createElement("title"); chan.insertBefore(tEl, chan.firstChild); }
+      tEl.textContent = cardTitle;
+    }
+    const cardDesc = $("cardDesc").value.trim();
+    if(cardDesc){
+      setChanChild(chan, doc, "description", cardDesc);
+      setChanChild(chan, doc, "itunes:summary", cardDesc);
+      setChanChild(chan, doc, "googleplay:description", cardDesc);
+    }
+    const cardImage = $("cardImage").value.trim();
+    if(cardImage){
+      let imgEl = Array.from(chan.children).find(c=>c.tagName==="image");
+      if(!imgEl){ imgEl = doc.createElement("image"); chan.appendChild(imgEl); }
+      let urlEl = Array.from(imgEl.children).find(c=>c.tagName==="url");
+      if(!urlEl){ urlEl = doc.createElement("url"); imgEl.insertBefore(urlEl, imgEl.firstChild); }
+      urlEl.textContent = cardImage;
+      let itImg = Array.from(chan.children).find(c=>c.tagName==="itunes:image");
+      if(!itImg){ itImg = doc.createElement("itunes:image"); chan.appendChild(itImg); }
+      itImg.setAttribute("href", cardImage);
+    }
+  }
+
   function buildFeed(){
     // Clone source doc, keep channel-level metadata, keep only selected items verbatim
     const clone = sourceDoc.cloneNode(true);
@@ -302,13 +352,7 @@
     const allItems = Array.from(clone.querySelectorAll("channel > item"));
     allItems.forEach((it,i)=>{ if(!selected.has(i)) chan.removeChild(it); });
 
-    // Override channel title with card name
-    const cardTitle = $("cardTitle").value.trim();
-    if(cardTitle){
-      let tEl = chan.querySelector(":scope > title");
-      if(!tEl){ tEl = clone.createElement("title"); chan.insertBefore(tEl, chan.firstChild); }
-      tEl.textContent = cardTitle;
-    }
+    applyCardMeta(chan, clone);
     return new XMLSerializer().serializeToString(clone);
   }
 
@@ -399,6 +443,7 @@
   function reset(){
     sourceDoc=null; items=[]; selected.clear();
     $("url").value=""; $("xml").value=""; $("cardTitle").value="";
+    $("cardDesc").value=""; $("cardImage").value="";
     $("eps").innerHTML=""; $("listSection").style.display="none";
     $("out").className=""; $("feedMeta").className=""; clearErr();
     $("ok").className="msg ok"; $("pasteWrap").classList.remove("show");

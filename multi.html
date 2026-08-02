@@ -169,6 +169,10 @@
   <div class="step"><span class="idx">3</span><h2>產生 Feed</h2></div>
   <label class="field" for="cardTitle">這張卡的名稱（會寫進 feed 標題）</label>
   <input type="url" id="cardTitle" placeholder="例如：小福 4 歲睡前故事" style="font-family:Georgia,'Songti TC',serif">
+  <label class="field" for="cardDesc" style="margin-top:10px">這張卡的描述（會寫進 feed 描述，預帶第一個節目的描述，可自行修改）</label>
+  <textarea id="cardDesc" placeholder="例如：精選幾集陪睡前聽的故事" style="min-height:80px"></textarea>
+  <label class="field" for="cardImage" style="margin-top:10px">封面圖片網址（選填，留空則沿用第一個節目的封面）</label>
+  <input type="text" id="cardImage" placeholder="https://...">
   <label class="field" for="cardSelect" style="margin-top:10px">選現有卡片來更新（cards/），或在下方輸入新檔名建立新卡</label>
   <select id="cardSelect"><option value="">— 現有卡片 —</option></select>
   <label class="field" for="destName" style="margin-top:10px">目標檔名（存進 cards/，要更新哪張卡）</label>
@@ -276,6 +280,16 @@
     showActiveFeed();
     $("out").className = "show";
     if(!$("cardTitle").value) $("cardTitle").value = feeds[0].title + "（精選）";
+    if(!$("cardDesc").value){
+      const chan0 = feeds[0].doc.querySelector("channel");
+      const chanDesc = (chan0.querySelector(":scope > description")||{}).textContent || "";
+      $("cardDesc").value = chanDesc.trim();
+    }
+    if(!$("cardImage").value){
+      const chan0 = feeds[0].doc.querySelector("channel");
+      const chanImg = (chan0.querySelector(":scope > image > url")||{}).textContent || "";
+      $("cardImage").value = chanImg.trim();
+    }
   }
 
   function renderTabs(){
@@ -521,6 +535,44 @@
     finally{ btn.disabled=false; btn.textContent=lb; }
   }
 
+  // Set (or create) a direct child of <channel> by tag name — works for prefixed
+  // tags too (e.g. "itunes:summary"), since tagName match ignores how the node
+  // was created.
+  function setChanChild(chan, doc, tag, text){
+    let el = Array.from(chan.children).find(c=>c.tagName===tag);
+    if(!el){ el = doc.createElement(tag); chan.appendChild(el); }
+    el.textContent = text;
+    return el;
+  }
+
+  // Apply the user-editable card title/description/image onto a channel,
+  // overriding whatever the template feed originally shipped.
+  function applyCardMeta(chan, doc){
+    const cardTitle = $("cardTitle").value.trim();
+    if(cardTitle){
+      let tEl = chan.querySelector(":scope > title");
+      if(!tEl){ tEl = doc.createElement("title"); chan.insertBefore(tEl, chan.firstChild); }
+      tEl.textContent = cardTitle;
+    }
+    const cardDesc = $("cardDesc").value.trim();
+    if(cardDesc){
+      setChanChild(chan, doc, "description", cardDesc);
+      setChanChild(chan, doc, "itunes:summary", cardDesc);
+      setChanChild(chan, doc, "googleplay:description", cardDesc);
+    }
+    const cardImage = $("cardImage").value.trim();
+    if(cardImage){
+      let imgEl = Array.from(chan.children).find(c=>c.tagName==="image");
+      if(!imgEl){ imgEl = doc.createElement("image"); chan.appendChild(imgEl); }
+      let urlEl = Array.from(imgEl.children).find(c=>c.tagName==="url");
+      if(!urlEl){ urlEl = doc.createElement("url"); imgEl.insertBefore(urlEl, imgEl.firstChild); }
+      urlEl.textContent = cardImage;
+      let itImg = Array.from(chan.children).find(c=>c.tagName==="itunes:image");
+      if(!itImg){ itImg = doc.createElement("itunes:image"); chan.appendChild(itImg); }
+      itImg.setAttribute("href", cardImage);
+    }
+  }
+
   function buildFeed(){
     // Clone the first feed's channel as template, drop its items, append the whole basket verbatim.
     if(feeds.length===0 || basket.size===0) return "";
@@ -528,12 +580,7 @@
     const chan = clone.querySelector("channel");
     Array.from(clone.querySelectorAll("channel > item")).forEach(it=>chan.removeChild(it));
     basket.forEach(v=>{ chan.appendChild(clone.importNode(v.node, true)); });   // importNode: cross-document
-    const cardTitle = $("cardTitle").value.trim();
-    if(cardTitle){
-      let tEl = chan.querySelector(":scope > title");
-      if(!tEl){ tEl = clone.createElement("title"); chan.insertBefore(tEl, chan.firstChild); }
-      tEl.textContent = cardTitle;
-    }
+    applyCardMeta(chan, clone);
     return new XMLSerializer().serializeToString(clone);
   }
 
@@ -661,6 +708,7 @@
   function reset(){
     feeds=[]; activeFeed=-1; items=[]; sourceChanTitle=""; basket.clear();
     $("url").value=""; $("xml").value=""; $("cardTitle").value=""; $("srcName").value="";
+    $("cardDesc").value=""; $("cardImage").value="";
     $("eps").innerHTML=""; $("basket").innerHTML=""; $("tabs").innerHTML=""; $("tabs").style.display="none";
     $("listSection").style.display="none"; $("basketSection").style.display="none";
     $("out").className=""; $("feedMeta").className=""; clearErr();
