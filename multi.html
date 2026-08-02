@@ -210,7 +210,6 @@
   let sourceChanTitle = "";     // active feed's channel title (for labelling basket rows)
   let basket = new Map();       // key -> { node: <item> clone, feed: title }  (persists across feeds/tabs)
   let filterQuery = "";         // keyword filter for the active feed's list
-  let autoDesc = "", autoImage = "";   // last auto-filled values, so we know it's safe to overwrite on tab switch
 
   const PROXIES = [
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
@@ -278,9 +277,19 @@
     else { feeds.push(entry); activeFeed=feeds.length-1; }           // a new feed opens a new tab (no overwrite)
 
     renderTabs();
-    showActiveFeed();   // also syncs description/image from this (now active) feed
+    showActiveFeed();
     $("out").className = "show";
     if(!$("cardTitle").value) $("cardTitle").value = feeds[0].title + "（精選）";
+    if(!$("cardDesc").value){
+      const chan0 = feeds[0].doc.querySelector("channel");
+      const chanDesc = (chan0.querySelector(":scope > description")||{}).textContent || "";
+      $("cardDesc").value = chanDesc.trim();
+    }
+    if(!$("cardImage").value){
+      const chan0 = feeds[0].doc.querySelector("channel");
+      const chanImg = (chan0.querySelector(":scope > image > url")||{}).textContent || "";
+      $("cardImage").value = chanImg.trim();
+    }
   }
 
   function renderTabs(){
@@ -299,19 +308,6 @@
     box.style.display = feeds.length ? "flex" : "none";
   }
 
-  // Refill the description/image fields from whichever tab is now active — but
-  // only if the field still holds the last value we auto-filled, so a manual
-  // edit survives switching tabs instead of getting silently clobbered.
-  function syncCardMetaFromActive(){
-    if(activeFeed<0 || !feeds[activeFeed]) return;
-    const chan = feeds[activeFeed].doc.querySelector("channel");
-    const desc = ((chan.querySelector(":scope > description")||{}).textContent || "").trim();
-    const img = ((chan.querySelector(":scope > image > url")||{}).textContent || "").trim();
-    const descEl = $("cardDesc"), imgEl = $("cardImage");
-    if(descEl.value === autoDesc){ descEl.value = desc; autoDesc = desc; }
-    if(imgEl.value === autoImage){ imgEl.value = img; autoImage = img; }
-  }
-
   function showActiveFeed(){
     if(activeFeed<0 || !feeds[activeFeed]){ $("listSection").style.display="none"; return; }
     const f = feeds[activeFeed];
@@ -322,7 +318,6 @@
     $("fCount").textContent = "共 " + f.items.length + " 集";
     $("feedMeta").className = "show";
     $("listSection").style.display = "block";
-    syncCardMetaFromActive();
     renderList();
     renderBasket();
   }
@@ -712,7 +707,6 @@
 
   function reset(){
     feeds=[]; activeFeed=-1; items=[]; sourceChanTitle=""; basket.clear();
-    autoDesc=""; autoImage="";
     $("url").value=""; $("xml").value=""; $("cardTitle").value=""; $("srcName").value="";
     $("cardDesc").value=""; $("cardImage").value="";
     $("eps").innerHTML=""; $("basket").innerHTML=""; $("tabs").innerHTML=""; $("tabs").style.display="none";
